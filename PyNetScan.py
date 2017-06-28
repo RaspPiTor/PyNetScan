@@ -22,10 +22,12 @@ class DNSLookup(multiprocessing.Process):
 				for ip in network:
 					ip = ip.exploded
 					try:
-						hostname = gethostbyaddr(ip)
+						hostname = gethostbyaddr(ip)[0]
+						outq.put((ip, hostname))
 						print(ip, hostname)
 					except socket.herror:
 						pass
+				inq.task_done()
 		except KeyboardInterrupt:
 			pass
 
@@ -41,13 +43,19 @@ def main():
 	network = ipaddress.ip_network(args.network)
 	networks = list(network.subnets())
 	for i in range(args.threads):
+		if len(networks) > (args.threads * 2):
+			break
 		old = networks
 		networks = []
 		[networks.extend(list(n.subnets())) for n in old]
+	print('Generated potential networks')
 	for n in networks:
 		inq.put(n)
+	print('Put potential networks on queue')
 	for i in range(args.threads):
 		DNSLookup(inq, outq).start()
+	print('Started all threads')
+	inq.join()
 
 if __name__ == '__main__':
 	main()
