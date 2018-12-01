@@ -3,6 +3,7 @@ import tkinter as tk
 
 import ipaddress
 import queue
+import time
 
 import dns_lookup
 
@@ -51,6 +52,9 @@ class GUI(ttk.Frame):
         ttk.Label(self, text='Status').grid(row=7, column=0)
         self.status = ttk.Label(self)
         self.status.grid(row=7, column=1)
+        ttk.Label(self, text='Duration').grid(row=7, column=2)
+        self.visual_time = ttk.Label(self)
+        self.visual_time.grid(row=7, column=3)
 
         self.output = tk.Listbox(self)
         self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL)
@@ -63,6 +67,8 @@ class GUI(ttk.Frame):
         self.after(5, self.refresh_everything)
         self.network = iter(())
         self.done = True
+        self.duration = 0
+        self.start_time = 0
 
     def start(self):
         self.dns.stop()
@@ -73,15 +79,23 @@ class GUI(ttk.Frame):
                                         int(self.abandon_timeout.get()))
         self.dns.start()
         self.output.delete(0, 'end')
-        network = ipaddress.ip_network(self.address_range.get('1.0', 'end-1c'))
+        network = ipaddress.ip_network(self.address_range.get('1.0', 'end-1c'),
+                                       strict=False)
         self.network = iter(network)
         self.pause = False
-        self.pause_button['text'] = 'Resume' if self.pause else 'Pause'
+        self.pause_button['text'] = 'Pause'
         self.done = False
+        self.duration = 0
+        self.start_time = time.time()
 
     def pause(self):
         self.pause = not self.pause
         self.pause_button['text'] = 'Resume' if self.pause else 'Pause'
+        if not self.done:
+            if self.pause:
+                self.duration += time.time() - self.start_time
+            else:
+                self.start_time = time.time()
 
     def refresh_everything(self):
         if not self.pause:
@@ -89,14 +103,22 @@ class GUI(ttk.Frame):
                 while not self.dns.request_q.full():
                     self.dns.request_q.put(next(self.network).exploded.encode())
             except StopIteration:
-                self.done = self.dns.done()
+                if not self.done and self.dns.done:
+                    self.duration += time.time() - self.start_time
+                    print('Finished')
+                self.done = self.dns.done
             while not self.dns.response_q.empty():
                 ip, domain = self.dns.response_q.get()
                 if domain:
                     self.output.insert(0, '%s : %s' % (ip, domain))
+        if self.done or self.pause:
+            self.visual_time['text'] = round(self.duration, 3)
+        else:
+            self.visual_time['text'] = round(self.duration
+                                             + time.time() - self.start_time, 3)
         self.status['text'] = 'Done' if self.done else (
             'Paused' if self.pause else 'Running')
-        self.after(5, self.refresh_everything)
+        self.after(50, self.refresh_everything)
         
 
 def main():

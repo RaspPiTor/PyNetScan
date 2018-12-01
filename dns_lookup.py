@@ -8,17 +8,14 @@ import time
 REQUEST_TEMPLATE = (b'%s\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00%s'
                     b'\x00\x00\x0c\x00\x01')
 
-def gen_transid(ip, seed=secrets.token_bytes()):
-    return hashlib.pbkdf2_hmac('sha256', ip, seed, 10, 2)
-
-def generate_request(ip):
+def generate_request(ip, seed=secrets.token_bytes()):
     domain = b'.'.join(ip.split(b'.')[::-1])+b'.in-addr.arpa'
-    transid = gen_transid(ip)
-    query = b''
+    transid = hashlib.pbkdf2_hmac('md5', ip, seed, 1, 2)
+    query = []
     for part in domain.split(b'.'):
-        query += bytes([len(part)])
-        query += part
-    return REQUEST_TEMPLATE % (transid, query)
+        query.append(bytes([len(part)]))
+        query.append(part)
+    return REQUEST_TEMPLATE % (transid, b''.join(query))
 
 def decode_response(response):
     pos = 12
@@ -37,59 +34,61 @@ def decode_response(response):
 
 
 class DNSLookup(threading.Thread):
-    def __init__(self, ip, port=53, max_unanswered=10, timeout=1, total_timeout=5):
+    def __init__(self, ip, port=53, max_unanswered=10, timeout=1, abandon_timeout=5):
         threading.Thread.__init__(self)
-        self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.s.settimeout(0.01)
         self.server_addr = (ip, port)
         self.request_q = queue.Queue(max_unanswered)
         self.response_q = queue.Queue()
         self.max_unanswered = max_unanswered
         self.timeout = timeout
-        self.total_timeout = max(timeout, total_timeout)
-        self._done = True
-        self._done_lock = threading.RLock()
+        self.abandon_timeout = max(timeout, abandon_timeout)
+        self.done = True
         self._stop_event = threading.Event()
     def run(self):
-        unanswered = {}
         server_addr = self.server_addr
-        while not self._stop_event.is_set():
+        max_unanswered = self.max_unanswered
+        timeout = self.timeout
+        abandon_timeout = self.abandon_timeout
+        request_q = self.request_q
+        response_q = self.response_q
+        _stop_event_is_set = self._stop_event.is_set
+
+        udp_conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        udp_conn.settimeout(0.01)
+        unanswered = {}
+        last_response = time.time()
+        while not _stop_event_is_set():
             try:
-                while len(unanswered) < self.max_unanswered:
-                    request = self.request_q.get(0)
-                    unanswered[request] = [0, time.time()]
+                while len(unanswered) < max_unanswered:
+                    request = request_q.get(0)
+                    unanswered[request] = 0
             except queue.Empty:
                 pass
-            now = time.time()
-            for request in list(unanswered):
-                last_attempt, started = unanswered[request]
-                if now - started < self.total_timeout:
-                    if time.time() - last_attempt > self.timeout:
-                        self.s.sendto(generate_request(request), server_addr)
-                        unanswered[request][0] = time.time()
-                else:
-                    del unanswered[request]
+            for request in unanswered:
+                last_attempt = unanswered[request]
+                if time.time() - last_attempt > timeout:
+                    udp_conn.sendto(generate_request(request), server_addr)
+                    unanswered[request] = time.time()
             try:
                 while True:
-                    data, addr = self.s.recvfrom(4096)
+                    data, addr = udp_conn.recvfrom(4096)
                     if addr == server_addr:
                         try:
                             request, response = decode_response(data)
                             del unanswered[request]
-                            self.response_q.put([request, response])
+                            response_q.put([request, response])
+                            last_response = time.time()
                         except KeyError as error:
                             print('Unexpected reponse', error, request)
+                    else:
+                        print('data from wrong server', data, addr)
             except socket.timeout:
                 pass
-            with self._done_lock:
-                self._done = self.request_q.empty() and not unanswered
-        with self._done_lock:
-            self._done = True
-        
-    def done(self):
-        with self._done_lock:
-            is_done = self._done
-        return is_done
+            self.done = self.request_q.empty() and not unanswered
+            if unanswered and time.time() - last_response > abandon_timeout:
+                print('Server not responding')
+                break
+        self.done = True
 
     def stop(self):
         self._stop_event.set()
