@@ -49,10 +49,11 @@ class DNSLookup(threading.Thread):
         self.total_timeout = max(timeout, total_timeout)
         self._done = True
         self._done_lock = threading.RLock()
+        self._stop_event = threading.Event()
     def run(self):
         unanswered = {}
         server_addr = self.server_addr
-        while True:
+        while not self._stop_event.is_set():
             try:
                 while len(unanswered) < self.max_unanswered:
                     request = self.request_q.get(0)
@@ -82,8 +83,13 @@ class DNSLookup(threading.Thread):
                 pass
             with self._done_lock:
                 self._done = self.request_q.empty() and not unanswered
-    
+        with self._done_lock:
+            self._done = True
+        
     def done(self):
         with self._done_lock:
             is_done = self._done
         return is_done
+
+    def stop(self):
+        self._stop_event.set()
