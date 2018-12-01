@@ -42,18 +42,28 @@ class GUI(ttk.Frame):
         self.abandon_timeout.insert(0, 10)
         self.abandon_timeout.grid(row=4, column=1)
     
-        self.button = ttk.Button(self, text='Start', command=self.start)
-        self.button.grid(row=5, columnspan=4, sticky='nesw')
+        self.start_button = ttk.Button(self, text='Start', command=self.start)
+        self.start_button.grid(row=5, columnspan=4, sticky='nesw')
+
+        self.pause_button = ttk.Button(self, text='Resume', command=self.pause)
+        self.pause_button.grid(row=6, columnspan=4, sticky='nesw')
+
+        ttk.Label(self, text='Status').grid(row=7, column=0)
+        self.status = ttk.Label(self)
+        self.status.grid(row=7, column=1)
 
         self.output = tk.Listbox(self)
         self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL)
         self.output.config(yscrollcommand=self.scrollbar.set)
         self.scrollbar.config(command=self.output.yview)
-        self.output.grid(row=6, columnspan=4, sticky='nesw')
-        self.scrollbar.grid(row=6, column=3, sticky='nse')
+        self.output.grid(row=8, columnspan=4, sticky='nesw')
+        self.scrollbar.grid(row=8, column=3, sticky='nse')
         self.dns = dns_lookup.DNSLookup('')
         self.pause = True
         self.after(5, self.refresh_everything)
+        self.network = iter(())
+        self.done = True
+
     def start(self):
         self.dns.stop()
         self.dns = dns_lookup.DNSLookup(self.server_ip.get('1.0', 'end-1c'),
@@ -66,17 +76,26 @@ class GUI(ttk.Frame):
         network = ipaddress.ip_network(self.address_range.get('1.0', 'end-1c'))
         self.network = iter(network)
         self.pause = False
+        self.pause_button['text'] = 'Resume' if self.pause else 'Pause'
+        self.done = False
+
+    def pause(self):
+        self.pause = not self.pause
+        self.pause_button['text'] = 'Resume' if self.pause else 'Pause'
+
     def refresh_everything(self):
         if not self.pause:
             try:
                 while not self.dns.request_q.full():
                     self.dns.request_q.put(next(self.network).exploded.encode())
             except StopIteration:
-                pass
+                self.done = self.dns.done()
             while not self.dns.response_q.empty():
                 ip, domain = self.dns.response_q.get()
                 if domain:
                     self.output.insert(0, '%s : %s' % (ip, domain))
+        self.status['text'] = 'Done' if self.done else (
+            'Paused' if self.pause else 'Running')
         self.after(5, self.refresh_everything)
         
 
