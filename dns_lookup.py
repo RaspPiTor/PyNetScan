@@ -58,33 +58,39 @@ class DNSLookup(threading.Thread):
 
         udp_conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp_conn.settimeout(0.0001)
+        udp_conn.connect(server_addr)
         unanswered = {}
         last_response = time.time()
-        times = [0, 0, 0, 0]
+        times = [0, 0, 0, 0, 0]
+        to_send = []
+        sent_data = 0
+        start_time = time.time()
         while not _stop_event_is_set():
             for _ in range(10):
                 # To reduce the number of checks, it only performs them once
                 # every 10 iterations.
                 now = time.time()
+                to_send.clear()
                 try:
-                    while len(unanswered) < max_unanswered:
-                        request = request_q.get(0)
-                        unanswered[request] = 0
+                    for _ in range(max_unanswered - len(unanswered)):
+                        to_send.append(request_q.get(0))
                 except queue.Empty:
                     pass
                 times[0] += time.time() - now
                 now = time.time()
                 for request in unanswered:
-                    last_attempt = unanswered[request]
-                    if time.time() - last_attempt > timeout:
-                        udp_conn.sendto(generate_request(request), server_addr)
-                        unanswered[request] = time.time()
+                    if time.time() - unanswered[request] > timeout:
+                        to_send.append(request)
                 times[1] += time.time() - now
+                now = time.time()
+                sent_data += sum(map(udp_conn.send, map(generate_request, to_send)))
+                any(map(unanswered.__setitem__, to_send, (now,)*len(to_send)))
+                times[2] += time.time() - now
                 try:
                     while True:
                         now = time.time()
                         data, addr = udp_conn.recvfrom(1024)
-                        times[2] += time.time() - now
+                        times[3] += time.time() - now
                         now = time.time()
 
                         ##LOOK AT RECVFROM INTO
@@ -95,9 +101,10 @@ class DNSLookup(threading.Thread):
                                 response_q.put((request, response))
                                 last_response = time.time()
                                 
-                                times[3] += time.time() - now
+                                times[4] += time.time() - now
                             except KeyError as error:
-                                print('Unexpected reponse', request, response)
+                                print('Unexpected reponse %s %s'
+                                      % (request, response))
                         else:
                             print('data from wrong server', data, addr)
                 except socket.timeout:
@@ -108,6 +115,7 @@ class DNSLookup(threading.Thread):
                 break
         self.done = True
         print(times)
+        print(round(sent_data/(time.time() - start_time)/1024), 'kB/s')
 
     def stop(self):
         self._stop_event.set()
