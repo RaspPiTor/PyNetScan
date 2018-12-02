@@ -69,6 +69,7 @@ class GUI(ttk.Frame):
         self.done = True
         self.duration = 0
         self.start_time = 0
+        self.last_update = 0
 
     def start(self):
         self.dns.stop()
@@ -79,9 +80,8 @@ class GUI(ttk.Frame):
                                         int(self.abandon_timeout.get()))
         self.dns.start()
         self.output.delete(0, 'end')
-        network = ipaddress.ip_network(self.address_range.get('1.0', 'end-1c'),
-                                       strict=False)
-        self.network = iter(network)
+        network = ipaddress.ip_network(self.address_range.get('1.0', 'end-1c'))
+        self.network = map(str.encode, map(str, network))
         self.pause = False
         self.pause_button['text'] = 'Pause'
         self.done = False
@@ -98,15 +98,17 @@ class GUI(ttk.Frame):
                 self.start_time = time.time()
 
     def refresh_everything(self):
+        ip = None
         if not self.pause:
             try:
-                while not self.dns.request_q.full():
-                    self.dns.request_q.put(next(self.network).exploded.encode())
-            except StopIteration:
-                if not self.done and self.dns.done:
+                any(map(self.dns.request_q.put_nowait, self.network))
+                if not self.done and self.dns.done and self.dns.request_q.empty():
                     self.duration += time.time() - self.start_time
                     print('Finished')
-                self.done = self.dns.done
+                    self.done = True
+                    self.dns.stop()
+            except queue.Full:
+                pass
             while not self.dns.response_q.empty():
                 ip, domain = self.dns.response_q.get()
                 if domain:
@@ -116,34 +118,15 @@ class GUI(ttk.Frame):
         else:
             self.visual_time['text'] = round(self.duration
                                              + time.time() - self.start_time, 3)
-        self.status['text'] = 'Done' if self.done else (
-            'Paused' if self.pause else 'Running')
+        if time.time() - self.last_update > .5:
+            self.last_update = time.time()
+            self.status['text'] = ('Done' if self.done else (
+                'Paused' if self.pause else 'Running')
+                                   + ('(%s)' % ip) if ip else '')
         self.after(50, self.refresh_everything)
         
 
 def main():
-##    dns = dns_lookup.DNSLookup('127.0.0.53', max_unanswered=100, timeout=5,
-##                               total_timeout=10)
-##    dns.start()
-##
-##    network = ipaddress.ip_network('192.168.3.0/24')
-##    for ip in network:
-##        dns.request_q.put(ip.exploded.encode())
-##        try:
-##            while True:
-##                ip, domain = dns.response_q.get(0)
-##                if domain:
-##                    print(ip, domain)
-##        except queue.Empty:
-##            pass
-##    while not dns.done():
-##        try:
-##            ip, domain = dns.response_q.get(0.5)
-####            if domain:
-##            print(ip, domain)
-##        except queue.Empty:
-##            pass
-##    print('Done')
     gui = GUI()
     gui.grid()
     gui.mainloop()
