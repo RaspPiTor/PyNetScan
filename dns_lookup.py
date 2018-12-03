@@ -1,4 +1,5 @@
 import threading
+import itertools
 import hashlib
 import secrets
 import socket
@@ -55,9 +56,10 @@ class DNSLookup(threading.Thread):
         request_q = self.request_q
         response_q = self.response_q
         _stop_event_is_set = self._stop_event.is_set
+        repeat = itertools.repeat
 
         udp_conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp_conn.settimeout(0.0001)
+        udp_conn.settimeout(0.000001)
         udp_conn.connect(server_addr)
         unanswered = {}
         last_response = time.time()
@@ -72,19 +74,22 @@ class DNSLookup(threading.Thread):
                 now = time.time()
                 to_send.clear()
                 try:
-                    for _ in range(max_unanswered - len(unanswered)):
-                        to_send.append(request_q.get(0))
+##                    for _ in range(max_unanswered - len(unanswered)):
+##                        to_send.append(request_q.get(0))
+                    any(map(to_send.append,
+                            map(request_q.get,
+                                repeat(0, max_unanswered - len(unanswered)))))
                 except queue.Empty:
                     pass
                 times[0] += time.time() - now
                 now = time.time()
                 for request in unanswered:
-                    if time.time() - unanswered[request] > timeout:
+                    if now - unanswered[request] > timeout:
                         to_send.append(request)
                 times[1] += time.time() - now
                 now = time.time()
                 sent_data += sum(map(udp_conn.send, map(generate_request, to_send)))
-                any(map(unanswered.__setitem__, to_send, (now,)*len(to_send)))
+                any(map(unanswered.__setitem__, to_send, repeat(now)))
                 times[2] += time.time() - now
                 try:
                     while True:
