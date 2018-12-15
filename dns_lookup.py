@@ -17,25 +17,30 @@ def generate_request(ip, seed=secrets.token_bytes()):
     # each launch of program it changes.
     query = []
     for part in domain.split(b'.'):
-        query.append(bytes([len(part)]))
+        query.append(bytes((len(part), )))
         query.append(part)
     return REQUEST_TEMPLATE % (transid, b''.join(query))
 
 def decode_response(response):
     pos = 12
-    request_domain = []
-    while response[pos] != 0:
-        request_domain.append(response[pos+1: pos+1 + response[pos]])
-        pos += response[pos] + 1
-    request_domain = b'.'.join(request_domain[:4][::-1])
-    pos += 17
-    response_domain = []
-    if pos < len(response):
-        while response[pos] != 0:
-            response_domain.append(response[pos+1: pos+1 + response[pos]])
-            pos += response[pos] + 1
-    response_domain = b'.'.join(response_domain)
-    return request_domain, response_domain
+    request_domain, response_domain = [], []
+    for _ in range(4):
+        response_pos = response[pos]
+        pos += 1
+        old, pos = pos, pos + response_pos
+        request_domain.append(response[old: pos])
+    request_domain.reverse()
+    pos += 30
+    try:
+        response_pos = response[pos]
+        while response_pos:
+            pos += 1
+            old, pos = pos, pos + response_pos
+            response_domain.append(response[old: pos])
+            response_pos = response[pos]
+        return b'.'.join(request_domain), b'.'.join(response_domain)
+    except IndexError:
+        return b'.'.join(request_domain), b''
 
 class DNSLookup(threading.Thread):
     def __init__(self, ip, port=53, max_unanswered=10, timeout=1, abandon_timeout=5):
@@ -59,23 +64,22 @@ class DNSLookup(threading.Thread):
         repeat = itertools.repeat
 
         udp_conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp_conn.settimeout(0.000001)
+        udp_conn.settimeout(0.00001)
         udp_conn.connect(server_addr)
         unanswered = {}
         last_response = time.time()
-        times = [0, 0, 0, 0, 0]
+        times = [0, 0, [0,0], 0, 0, 0, 0, 0]
         to_send = []
-        sent_data = 0
+        uploaded, downloaded, packets_sent = 0, 0, 0
         start_time = time.time()
         while not _stop_event_is_set():
+            new_responses = []
             for _ in range(10):
-                # To reduce the number of checks, it only performs them once
-                # every 10 iterations.
                 now = time.time()
-                to_send.clear()
+                to_send = []
                 try:
-##                    for _ in range(max_unanswered - len(unanswered)):
-##                        to_send.append(request_q.get(0))
+    ##                    for _ in range(max_unanswered - len(unanswered)):
+    ##                        to_send.append(request_q.get(0))
                     any(map(to_send.append,
                             map(request_q.get,
                                 repeat(0, max_unanswered - len(unanswered)))))
@@ -88,39 +92,51 @@ class DNSLookup(threading.Thread):
                         to_send.append(request)
                 times[1] += time.time() - now
                 now = time.time()
-                sent_data += sum(map(udp_conn.send, map(generate_request, to_send)))
+                uploaded += sum(map(udp_conn.send, map(generate_request, to_send)))
+                packets_sent += len(to_send)
+                times[2][0] += time.time() - now
+                now = time.time()
                 any(map(unanswered.__setitem__, to_send, repeat(now)))
-                times[2] += time.time() - now
+                times[2][1] += time.time() - now
                 try:
                     while True:
                         now = time.time()
                         data, addr = udp_conn.recvfrom(1024)
+                        downloaded += len(data)
                         times[3] += time.time() - now
                         now = time.time()
-
-                        ##LOOK AT RECVFROM INTO
-                        if addr == server_addr:
-                            try:
-                                request, response = decode_response(data)
-                                del unanswered[request]
-                                response_q.put((request, response))
-                                last_response = time.time()
-                                
-                                times[4] += time.time() - now
-                            except KeyError as error:
-                                print('Unexpected reponse %s %s'
-                                      % (request, response))
-                        else:
-                            print('data from wrong server', data, addr)
+                        try:
+                            request, response = decode_response(data)
+                            times[4] += time.time() - now
+                            now = time.time()
+                            del unanswered[request]
+                            times[5] += time.time() - now
+                            now = time.time()
+                            new_responses.append((request, response))
+                            last_response = time.time()
+                            
+                            times[6] += time.time() - now
+                            now = time.time()
+                        except KeyError as error:
+                            print('Unexpected reponse %s %s'
+                                  % (request, response))
                 except socket.timeout:
                     pass
+            now = time.time()
+            duration = now - start_time
+            if new_responses:
+                response_q.put((new_responses,
+                                round(uploaded/duration/1024),
+                                round(downloaded/duration/1024),
+                                round(packets_sent/duration)))
+            times[7] += time.time() - now
             self.done = self.request_q.empty() and not unanswered
             if unanswered and time.time() - last_response > abandon_timeout:
                 print('Server not responding')
                 break
         self.done = True
         print(times)
-        print(round(sent_data/(time.time() - start_time)/1024), 'kB/s')
+        print(round(uploaded/(time.time() - start_time)/1024), 'kB/s')
 
     def stop(self):
         self._stop_event.set()

@@ -56,12 +56,19 @@ class GUI(ttk.Frame):
         self.visual_time = ttk.Label(self)
         self.visual_time.grid(row=7, column=3)
 
+        self.uploaded = ttk.Label(self)
+        self.uploaded.grid(row=8, column=0)
+        self.downloaded = ttk.Label(self)
+        self.downloaded.grid(row=8, column=1)
+        self.pps = ttk.Label(self)
+        self.pps.grid(row=8, column=2)
+
         self.output = tk.Listbox(self)
         self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL)
         self.output.config(yscrollcommand=self.scrollbar.set)
         self.scrollbar.config(command=self.output.yview)
-        self.output.grid(row=8, columnspan=4, sticky='nesw')
-        self.scrollbar.grid(row=8, column=3, sticky='nse')
+        self.output.grid(row=9, columnspan=4, sticky='nesw')
+        self.scrollbar.grid(row=9, column=3, sticky='nse')
         self.dns = dns_lookup.DNSLookup('')
         self.pause = True
         self.after(5, self.refresh_everything)
@@ -82,6 +89,10 @@ class GUI(ttk.Frame):
         self.output.delete(0, 'end')
         network = ipaddress.ip_network(self.address_range.get('1.0', 'end-1c'))
         self.network = map(str.encode, map(str, network))
+        try:
+            any(map(self.dns.request_q.put_nowait, self.network))
+        except queue.Full:
+            pass
         self.pause = False
         self.pause_button['text'] = 'Pause'
         self.done = False
@@ -110,20 +121,25 @@ class GUI(ttk.Frame):
             except queue.Full:
                 pass
             while not self.dns.response_q.empty():
-                ip, domain = self.dns.response_q.get()
-                if domain:
-                    self.output.insert(0, '%s : %s' % (ip, domain))
+                responses, upload, download, pps = self.dns.response_q.get()
+                self.uploaded['text'] = 'Uploaded: %skB/s' % upload
+                self.downloaded['text'] = 'Downloaded: %skB/s' % download
+                self.pps['text'] = 'Requests per second: %spps/s' % pps
+                for ip, domain in responses:
+                    if domain:
+                        self.output.insert(0, '%s : %s' % (ip.decode(),
+                                                           domain.decode()))
+        
+        self.status['text'] = ('Done' if self.done else (
+            'Paused' if self.pause else 'Running')
+                               + ('(%s)' % ip) if ip else '')
         if self.done or self.pause:
             self.visual_time['text'] = round(self.duration, 3)
         else:
             self.visual_time['text'] = round(self.duration
                                              + time.time() - self.start_time, 3)
-        if time.time() - self.last_update > .5:
-            self.last_update = time.time()
-            self.status['text'] = ('Done' if self.done else (
-                'Paused' if self.pause else 'Running')
-                                   + ('(%s)' % ip) if ip else '')
-        self.after(50, self.refresh_everything)
+            
+        self.after(100, self.refresh_everything)
         
 
 def main():
