@@ -7,7 +7,7 @@ import queue
 import time
 
 REQUEST_TEMPLATE = (b'%s\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00%s'
-                    b'\x00\x00\x0c\x00\x01')
+                    b'\x07in-addr\x04arpa\x00\x00\x0c\x00\x01')
 
 
 def generate_request(ip, seed=secrets.token_bytes(2)):
@@ -18,7 +18,7 @@ def generate_request(ip, seed=secrets.token_bytes(2)):
         query.append(len(part))
         query.extend(part)
     return REQUEST_TEMPLATE % (hashlib.pbkdf2_hmac('md5', ip, seed, 1, 2),
-                               bytes(query) + b'\x07in-addr\x04arpa')
+                               bytes(query))
 
 def decode_response(response, ):
     pos, request_domain, response_domain = 12, [0,0,0,0], []
