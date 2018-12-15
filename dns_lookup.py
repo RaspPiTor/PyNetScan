@@ -10,26 +10,23 @@ REQUEST_TEMPLATE = (b'%s\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00%s'
                     b'\x00\x00\x0c\x00\x01')
 
 
-def generate_request(ip, seed=secrets.token_bytes()):
-    domain = b'.'.join(ip.split(b'.')[::-1])+b'.in-addr.arpa'
-    transid = hashlib.pbkdf2_hmac('md5', ip, seed, 1, 2)
+def generate_request(ip, seed=secrets.token_bytes(2)):
     # Generate transaction ID with seed so same IP means same transid, but
     # each launch of program it changes.
     query = []
-    for part in domain.split(b'.'):
-        query.append(bytes((len(part), )))
-        query.append(part)
-    return REQUEST_TEMPLATE % (transid, b''.join(query))
+    for part in ip.split(b'.')[::-1] + [b'in-addr', b'arpa']:
+        query.append(len(part))
+        query.extend(part)
+    return REQUEST_TEMPLATE % (hashlib.pbkdf2_hmac('md5', ip, seed, 1, 2),
+                               bytes(query))
 
-def decode_response(response):
-    pos = 12
-    request_domain, response_domain = [], []
-    for _ in range(4):
+def decode_response(response, ):
+    pos, request_domain, response_domain = 12, [0,0,0,0], []
+    for i in range(3, -1, -1):
         response_pos = response[pos]
         pos += 1
         old, pos = pos, pos + response_pos
-        request_domain.append(response[old: pos])
-    request_domain.reverse()
+        request_domain[i] = response[old: pos]
     pos += 30
     try:
         response_pos = response[pos]
