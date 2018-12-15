@@ -14,11 +14,11 @@ def generate_request(ip, seed=secrets.token_bytes(2)):
     # Generate transaction ID with seed so same IP means same transid, but
     # each launch of program it changes.
     query = []
-    for part in ip.split(b'.')[::-1] + [b'in-addr', b'arpa']:
+    for part in ip.split(b'.')[::-1]:
         query.append(len(part))
         query.extend(part)
     return REQUEST_TEMPLATE % (hashlib.pbkdf2_hmac('md5', ip, seed, 1, 2),
-                               bytes(query))
+                               bytes(query) + b'\x07in-addr\x04arpa')
 
 def decode_response(response, ):
     pos, request_domain, response_domain = 12, [0,0,0,0], []
