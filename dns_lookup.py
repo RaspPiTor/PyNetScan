@@ -8,9 +8,8 @@ import time
 
 def generate_request(ip):
     query = []
-    for part in ip.split(b'.')[::-1]:
-        query.append(len(part))
-        query.extend(part)
+    any(map(lambda part: (query.append(len(part)), query.extend(part)),
+            ip.split(b'.')[::-1]))
     return ((b'%s\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00%s'
              b'\x07in-addr\x04arpa\x00\x00\x0c\x00\x01')
             % (secrets.token_bytes(2), bytes(query)))
@@ -97,8 +96,8 @@ class DNSLookup(threading.Thread):
                         data, addr = udp_conn.recvfrom(1024)
                         downloaded += len(data)
                         times[3] += time.time() - now
-                        now = time.time()
-                        try:
+                        try:                            
+                            now = time.time()
                             request, response = decode_response(data)
                             times[4] += time.time() - now
                             total_sent += 1
