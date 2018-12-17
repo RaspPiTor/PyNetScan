@@ -131,8 +131,16 @@ class DNSLookup(threading.Thread):
                 print('Server not responding')
                 break
         self.done = True
-        print(times)
         print(round(uploaded/(time.time() - start_time)/1024), 'kB/s')
+        print('Recieved IP addresses:', times[0])
+        print('Checked for timed out requests:', times[1])
+        print('Generated and sent requests:', times[2][0])
+        print('Added send times to dictionary:', times[2][1])
+        print('Recieved responses:', times[3])
+        print('Decoded responses:', times[4])
+        print('Removed requests from dictionary:', times[5])
+        print('Added responses to list:', times[6])
+        print('Added responses to queue:', times[7])
 
     def stop(self):
         self._stop_event.set()
