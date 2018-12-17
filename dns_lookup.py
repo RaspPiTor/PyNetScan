@@ -6,18 +6,14 @@ import socket
 import queue
 import time
 
-REQUEST_TEMPLATE = (b'%s\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00%s'
-                    b'\x07in-addr\x04arpa\x00\x00\x0c\x00\x01')
-
-
 def generate_request(ip):
-    # Generate transaction ID with seed so same IP means same transid, but
-    # each launch of program it changes.
     query = []
     for part in ip.split(b'.')[::-1]:
         query.append(len(part))
         query.extend(part)
-    return REQUEST_TEMPLATE % (secrets.token_bytes(2), bytes(query))
+    return ((b'%s\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00%s'
+             b'\x07in-addr\x04arpa\x00\x00\x0c\x00\x01')
+            % (secrets.token_bytes(2), bytes(query)))
 
 def decode_response(response, ):
     pos, request_domain, response_domain = 12, [0,0,0,0], []
@@ -70,12 +66,14 @@ class DNSLookup(threading.Thread):
         start_time = time.time()
         while not _stop_event_is_set():
             new_responses = []
-            for _ in range(10):
+            total_sent = 0
+            total_latency = 0.0
+            for _ in range(50):
                 now = time.time()
                 to_send = []
                 try:
-    ##                    for _ in range(max_unanswered - len(unanswered)):
-    ##                        to_send.append(request_q.get(0))
+##                    for _ in range(max_unanswered - len(unanswered)):
+##                        to_send.append(request_q.get(0))
                     any(map(to_send.append,
                             map(request_q.get,
                                 repeat(0, max_unanswered - len(unanswered)))))
@@ -104,6 +102,8 @@ class DNSLookup(threading.Thread):
                         try:
                             request, response = decode_response(data)
                             times[4] += time.time() - now
+                            total_sent += 1
+                            total_latency += time.time() - unanswered[request]
                             now = time.time()
                             del unanswered[request]
                             times[5] += time.time() - now
@@ -124,7 +124,8 @@ class DNSLookup(threading.Thread):
                 response_q.put((new_responses,
                                 round(uploaded/duration/1024),
                                 round(downloaded/duration/1024),
-                                round(packets_sent/duration)))
+                                round(packets_sent/duration),
+                                round(total_latency/total_sent*1000)),)
             times[7] += time.time() - now
             self.done = self.request_q.empty() and not unanswered
             if unanswered and time.time() - last_response > abandon_timeout:

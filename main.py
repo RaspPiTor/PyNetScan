@@ -27,7 +27,7 @@ class GUI(ttk.Frame):
         ttk.Label(self, text='Max unanswered:').grid(row=2, column=0)
         self.max_unanswered = tk.Spinbox(self, from_=0, to=1000)
         self.max_unanswered.delete(0, 'end')
-        self.max_unanswered.insert(0, 10)
+        self.max_unanswered.insert(0, 100)
         self.max_unanswered.grid(row=2, column=1)
 
 
@@ -62,13 +62,15 @@ class GUI(ttk.Frame):
         self.downloaded.grid(row=8, column=1)
         self.pps = ttk.Label(self)
         self.pps.grid(row=8, column=2)
+        self.latency = ttk.Label(self)
+        self.latency.grid(row=8, column=3)
 
         self.output = tk.Listbox(self)
         self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL)
         self.output.config(yscrollcommand=self.scrollbar.set)
         self.scrollbar.config(command=self.output.yview)
-        self.output.grid(row=9, columnspan=4, sticky='nesw')
-        self.scrollbar.grid(row=9, column=3, sticky='nse')
+        self.output.grid(row=9, columnspan=5, sticky='nesw')
+        self.scrollbar.grid(row=9, column=4, sticky='nse')
         self.dns = dns_lookup.DNSLookup('')
         self.pause = True
         self.after(5, self.refresh_everything)
@@ -121,18 +123,22 @@ class GUI(ttk.Frame):
             except queue.Full:
                 pass
             while not self.dns.response_q.empty():
-                responses, upload, download, pps = self.dns.response_q.get()
+                responses, upload, download, pps, latency = self.dns.response_q.get()
                 self.uploaded['text'] = 'Uploaded: %skB/s' % upload
                 self.downloaded['text'] = 'Downloaded: %skB/s' % download
                 self.pps['text'] = 'Requests per second: %spps/s' % pps
+                self.latency['text'] = 'Latency: %sms' % latency
                 for ip, domain in responses:
                     if domain:
                         self.output.insert(0, '%s : %s' % (ip.decode(),
                                                            domain.decode()))
-        
-        self.status['text'] = ('Done' if self.done else (
-            'Paused' if self.pause else 'Running')
-                               + ('(%s)' % ip) if ip else '')
+
+        if self.done:
+            
+            self.status['text'] = 'Done'
+        elif ip:
+            self.status['text'] =(('Paused' if self.pause else 'Running')
+                                  + ('(%s)' % ip) if ip else '')
         if self.done or self.pause:
             self.visual_time['text'] = round(self.duration, 3)
         else:
