@@ -1,18 +1,19 @@
 import threading
 import itertools
 import hashlib
-import secrets
 import socket
 import queue
 import time
+import os
 
 def generate_request(ip):
     query = []
-    any(map(lambda part: (query.append(len(part)), query.extend(part)),
-            ip.split(b'.')[::-1]))
+    for part in ip.split(b'.')[::-1]:
+        query.append(len(part))
+        query.extend(part)
     return ((b'%s\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00%s'
              b'\x07in-addr\x04arpa\x00\x00\x0c\x00\x01')
-            % (secrets.token_bytes(2), bytes(query)))
+            % (os.urandom(2), bytes(query)))
 
 def decode_response(response, ):
     pos, request_domain, response_domain = 12, [0,0,0,0], []
