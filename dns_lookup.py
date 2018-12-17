@@ -63,11 +63,10 @@ class DNSLookup(threading.Thread):
         times = [0, 0, [0,0], 0, 0, 0, 0, 0]
         to_send = []
         uploaded, downloaded, packets_sent = 0, 0, 0
+        total_sent, total_latency = 0, 0.0
         start_time = time.time()
         while not _stop_event_is_set():
             new_responses = []
-            total_sent = 0
-            total_latency = 0.0
             for _ in range(50):
                 now = time.time()
                 to_send = []
