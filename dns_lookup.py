@@ -57,91 +57,69 @@ class DNSLookup(threading.Thread):
         repeat = itertools.repeat
 
         udp_conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp_conn.settimeout(0.00001)
         udp_conn.connect(server_addr)
+        udp_conn.settimeout(0.000001)
         unanswered = {}
         last_response = time.time()
-        times = [0, 0, [0,0], 0, 0, 0, 0, 0]
+        times = [0, 0, 0]
         to_send = []
-        uploaded, downloaded, packets_sent = 0, 0, 0
-        total_sent, total_latency = 0, 0.0
+        packets_sent = 0
+        total_sent, total_latency, total_timeouts = 0, 0.0, 0
         start_time = time.time()
-        while not _stop_event_is_set():
+        import cProfile
+        pr = cProfile.Profile()
+        pr.enable()
+        stop = _stop_event_is_set()
+        while not stop or unanswered:
+            stop = _stop_event_is_set()
             new_responses = []
             for _ in range(50):
-                now = time.time()
                 to_send = []
-                try:
-##                    for _ in range(max_unanswered - len(unanswered)):
-##                        to_send.append(request_q.get(0))
-                    any(map(to_send.append,
-                            map(request_q.get,
-                                repeat(0, max_unanswered - len(unanswered)))))
-                except queue.Empty:
-                    pass
-                times[0] += time.time() - now
+                if not stop:
+                    try:
+    ##                    for _ in range(max_unanswered - len(unanswered)):
+    ##                        to_send.append(request_q.get(0))
+                        any(map(to_send.append,
+                                map(request_q.get,
+                                    repeat(0, max_unanswered - len(unanswered)))))
+                    except queue.Empty:
+                        pass
                 now = time.time()
                 for request in unanswered:
                     if now - unanswered[request] > timeout:
                         to_send.append(request)
-                times[1] += time.time() - now
-                now = time.time()
-                uploaded += sum(map(udp_conn.send, map(generate_request, to_send)))
+                        total_timeouts += 1
+                all(map(udp_conn.send, map(generate_request, to_send)))
                 packets_sent += len(to_send)
-                times[2][0] += time.time() - now
-                now = time.time()
                 any(map(unanswered.__setitem__, to_send, repeat(now)))
-                times[2][1] += time.time() - now
                 try:
                     while True:
-                        now = time.time()
                         data, addr = udp_conn.recvfrom(1024)
-                        downloaded += len(data)
-                        times[3] += time.time() - now
-                        try:                            
-                            now = time.time()
+                        try:
                             request, response = decode_response(data)
-                            times[4] += time.time() - now
                             total_sent += 1
                             total_latency += time.time() - unanswered[request]
-                            now = time.time()
                             del unanswered[request]
-                            times[5] += time.time() - now
-                            now = time.time()
                             new_responses.append((request, response))
                             last_response = time.time()
-                            
-                            times[6] += time.time() - now
-                            now = time.time()
                         except KeyError as error:
                             print('Unexpected reponse %s %s'
                                   % (request, response))
                 except socket.timeout:
                     pass
-            now = time.time()
-            duration = now - start_time
+            duration = time.time() - start_time
             if new_responses:
                 response_q.put((new_responses,
-                                round(uploaded/duration/1024),
-                                round(downloaded/duration/1024),
                                 round(packets_sent/duration),
-                                round(total_latency/total_sent*1000)),)
-            times[7] += time.time() - now
+                                round(total_latency/total_sent*1000, 2),
+                                round(total_timeouts/duration, 2)),)
             self.done = self.request_q.empty() and not unanswered
             if unanswered and time.time() - last_response > abandon_timeout:
                 print('Server not responding')
                 break
         self.done = True
-        print(round(uploaded/(time.time() - start_time)/1024), 'kB/s')
-        print('Recieved IP addresses:', times[0])
-        print('Checked for timed out requests:', times[1])
-        print('Generated and sent requests:', times[2][0])
-        print('Added send times to dictionary:', times[2][1])
-        print('Recieved responses:', times[3])
-        print('Decoded responses:', times[4])
-        print('Removed requests from dictionary:', times[5])
-        print('Added responses to list:', times[6])
-        print('Added responses to queue:', times[7])
+        pr.disable()
+        pr.print_stats(sort='tottime')
 
     def stop(self):
         self._stop_event.set()

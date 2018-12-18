@@ -27,7 +27,7 @@ class GUI(ttk.Frame):
         ttk.Label(self, text='Max unanswered:').grid(row=2, column=0)
         self.max_unanswered = tk.Spinbox(self, from_=0, to=1000)
         self.max_unanswered.delete(0, 'end')
-        self.max_unanswered.insert(0, 100)
+        self.max_unanswered.insert(0, 10)
         self.max_unanswered.grid(row=2, column=1)
 
 
@@ -56,14 +56,12 @@ class GUI(ttk.Frame):
         self.visual_time = ttk.Label(self)
         self.visual_time.grid(row=7, column=3)
 
-        self.uploaded = ttk.Label(self)
-        self.uploaded.grid(row=8, column=0)
-        self.downloaded = ttk.Label(self)
-        self.downloaded.grid(row=8, column=1)
         self.pps = ttk.Label(self)
-        self.pps.grid(row=8, column=2)
+        self.pps.grid(row=8, column=0)
         self.latency = ttk.Label(self)
-        self.latency.grid(row=8, column=3)
+        self.latency.grid(row=8, column=1)
+        self.timeouts = ttk.Label(self)
+        self.timeouts.grid(row=8, column=1)
 
         self.output = tk.Listbox(self)
         self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL)
@@ -123,11 +121,10 @@ class GUI(ttk.Frame):
             except queue.Full:
                 pass
             while not self.dns.response_q.empty():
-                responses, upload, download, pps, latency = self.dns.response_q.get()
-                self.uploaded['text'] = 'Uploaded: %skB/s' % upload
-                self.downloaded['text'] = 'Downloaded: %skB/s' % download
+                responses, pps, latency, timeouts = self.dns.response_q.get()
                 self.pps['text'] = 'Requests per second: %spps/s' % pps
                 self.latency['text'] = 'Latency: %sms' % latency
+                self.timeouts['text'] = 'Timeouts: %s/s' % timeouts
                 for ip, domain in responses:
                     if domain:
                         self.output.insert(0, '%s : %s' % (ip.decode(),
