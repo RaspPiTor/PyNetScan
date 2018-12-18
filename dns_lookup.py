@@ -73,6 +73,7 @@ class DNSLookup(threading.Thread):
         while not stop or unanswered:
             stop = _stop_event_is_set()
             new_responses = []
+            timedout_count = 0
             for _ in range(50):
                 to_send = []
                 if not stop:
@@ -85,10 +86,11 @@ class DNSLookup(threading.Thread):
                     except queue.Empty:
                         pass
                 now = time.time()
+                old_to_send = len(to_send)
                 for request in unanswered:
                     if now - unanswered[request] > timeout:
                         to_send.append(request)
-                        total_timeouts += 1
+                timedout_count += len(to_send) - old_to_send
                 all(map(udp_conn.send, map(generate_request, to_send)))
                 packets_sent += len(to_send)
                 any(map(unanswered.__setitem__, to_send, repeat(now)))
@@ -107,12 +109,18 @@ class DNSLookup(threading.Thread):
                                   % (request, response))
                 except socket.timeout:
                     pass
+            total_timeouts += timedout_count
+            if timedout_count > 1:
+                max_unanswered = max(1, max_unanswered -1)
+            else:
+                max_unanswered += 1
             duration = time.time() - start_time
             if new_responses:
                 response_q.put((new_responses,
                                 round(packets_sent/duration),
                                 round(total_latency/total_sent*1000, 2),
-                                round(total_timeouts/duration, 2)),)
+                                round(total_timeouts/duration, 2),
+                                max_unanswered),)
             self.done = self.request_q.empty() and not unanswered
             if unanswered and time.time() - last_response > abandon_timeout:
                 print('Server not responding')

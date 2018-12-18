@@ -62,6 +62,8 @@ class GUI(ttk.Frame):
         self.latency.grid(row=8, column=1)
         self.timeouts = ttk.Label(self)
         self.timeouts.grid(row=8, column=1)
+        self.pending = ttk.Label(self)
+        self.pending.grid(row=8, column=2)
 
         self.output = tk.Listbox(self)
         self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL)
@@ -121,10 +123,11 @@ class GUI(ttk.Frame):
             except queue.Full:
                 pass
             while not self.dns.response_q.empty():
-                responses, pps, latency, timeouts = self.dns.response_q.get()
+                responses, pps, latency, timeouts, pending = self.dns.response_q.get()
                 self.pps['text'] = 'Requests per second: %spps/s' % pps
                 self.latency['text'] = 'Latency: %sms' % latency
                 self.timeouts['text'] = 'Timeouts: %s/s' % timeouts
+                self.pending['text'] = 'Pending: %s' % pending
                 for ip, domain in responses:
                     if domain:
                         self.output.insert(0, '%s : %s' % (ip.decode(),
