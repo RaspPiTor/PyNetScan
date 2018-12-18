@@ -12,13 +12,13 @@ def generate_request(ip, urandom=(open('/dev/urandom', 'rb').read if sys.platfor
     for part in ip.split(b'.')[::-1]:
         query.append(len(part))
         query.extend(part)
-    return ((b'%s\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00%s'
-             b'\x07in-addr\x04arpa\x00\x00\x0c\x00\x01')
-            % (urandom(2), bytes(query)))
+    return (urandom(2) + b'\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00'
+            + bytes(query) + b'\x07in-addr\x04arpa\x00\x00\x0c\x00\x01')
 
-def decode_response(response, ):
-    pos, request_domain, response_domain = 12, [0,0,0,0], []
-    for i in range(3, -1, -1):
+def decode_response(response, join=b'.'.join, request_domain=[0,0,0,0],
+                     reverse_range=range(3, -1, -1)):
+    pos, response_domain = 12, []
+    for i in reverse_range:
         response_pos = response[pos]
         pos += 1
         old, pos = pos, pos + response_pos
@@ -31,9 +31,9 @@ def decode_response(response, ):
             old, pos = pos, pos + response_pos
             response_domain.append(response[old: pos])
             response_pos = response[pos]
-        return b'.'.join(request_domain), b'.'.join(response_domain)
+        return join(request_domain), join(response_domain)
     except IndexError:
-        return b'.'.join(request_domain), b''
+        return join(request_domain), b''
 
 class DNSLookup(threading.Thread):
     def __init__(self, ip, port=53, max_unanswered=10, timeout=1, abandon_timeout=5):
