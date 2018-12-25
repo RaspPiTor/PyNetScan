@@ -61,9 +61,9 @@ class GUI(ttk.Frame):
         self.latency = ttk.Label(self)
         self.latency.grid(row=8, column=1)
         self.timeouts = ttk.Label(self)
-        self.timeouts.grid(row=8, column=1)
+        self.timeouts.grid(row=8, column=2)
         self.pending = ttk.Label(self)
-        self.pending.grid(row=8, column=2)
+        self.pending.grid(row=8, column=3)
 
         self.output = tk.Listbox(self)
         self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL)
