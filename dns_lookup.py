@@ -64,12 +64,13 @@ class DNSLookup(threading.Thread):
         times = [0, 0, 0]
         to_send = []
         packets_sent = 0
-        total_sent, total_latency, total_timeouts = 0, 0.0, 0
+        total_sent, total_latency, total_timeouts, new_timeouts = 0, 0.0, 0, 0
         start_time = time.time()
         import cProfile
         pr = cProfile.Profile()
         pr.enable()
         stop = _stop_event_is_set()
+        last_refresh = 0
         while not stop or unanswered:
             stop = _stop_event_is_set()
             new_responses = []
@@ -82,7 +83,7 @@ class DNSLookup(threading.Thread):
     ##                        to_send.append(request_q.get(0))
                         any(map(to_send.append,
                                 map(request_q.get,
-                                    repeat(0, max_unanswered - len(unanswered)))))
+                                    repeat(0, round(max_unanswered) - len(unanswered)))))
                     except queue.Empty:
                         pass
                 now = time.time()
@@ -95,25 +96,22 @@ class DNSLookup(threading.Thread):
                 packets_sent += len(to_send)
                 any(map(unanswered.__setitem__, to_send, repeat(now)))
                 try:
-                    while True:
-                        data, addr = udp_conn.recvfrom(1024)
-                        try:
-                            request, response = decode_response(data)
-                            total_sent += 1
-                            total_latency += time.time() - unanswered[request]
-                            del unanswered[request]
-                            new_responses.append((request, response))
-                            last_response = time.time()
-                        except KeyError as error:
-                            print('Unexpected reponse %s %s'
-                                  % (request, response))
+                    data, addr = udp_conn.recvfrom(1024)
+                    try:
+                        request, response = decode_response(data)
+                        total_sent += 1
+                        total_latency += time.time() - unanswered[request]
+                        del unanswered[request]
+                        new_responses.append((request, response))
+                        last_response = time.time()
+                    except KeyError as error:
+                        print('Unexpected reponse %s %s'
+                              % (request, response))
                 except socket.timeout:
                     pass
+                
             total_timeouts += timedout_count
-            if timedout_count > 1:
-                max_unanswered = max(1, max_unanswered -1)
-            else:
-                max_unanswered += 1
+            new_timeouts += timedout_count
             duration = time.time() - start_time
             if new_responses:
                 response_q.put((new_responses,
@@ -125,6 +123,13 @@ class DNSLookup(threading.Thread):
             if unanswered and time.time() - last_response > abandon_timeout:
                 print('Server not responding')
                 break
+            since_refresh = time.time() - last_refresh
+            if since_refresh > .5:
+                max_unanswered = max(1, max_unanswered
+                                     * max(80, 110 - new_timeouts/since_refresh)
+                                     *.01)
+                new_timeouts = 0
+                last_refresh = time.time()
         self.done = True
         pr.disable()
         pr.print_stats(sort='tottime')
